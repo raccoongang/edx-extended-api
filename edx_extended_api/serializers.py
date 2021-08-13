@@ -72,3 +72,11 @@ class UserSerializer(serializers.ModelSerializer):
         User.objects.update_or_create(id=instance.id, defaults=validated_data)
         UserProfile.objects.update_or_create(user=instance, defaults=profile_data)
         return instance
+
+
+class ListUserSerializer(UserSerializer):
+    user_id = serializers.IntegerField(source='id')
+
+    def __init__(self, *args, **kwargs):
+        self.Meta.fields += ('user_id', 'is_active')
+        super(ListUserSerializer, self).__init__(*args, **kwargs)
