@@ -74,9 +74,9 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
 
-class ListUserSerializer(UserSerializer):
+class RetrieveListUserSerializer(UserSerializer):
     user_id = serializers.IntegerField(source='id')
 
     def __init__(self, *args, **kwargs):
         self.Meta.fields += ('user_id', 'is_active')
-        super(ListUserSerializer, self).__init__(*args, **kwargs)
+        super(RetrieveListUserSerializer, self).__init__(*args, **kwargs)
