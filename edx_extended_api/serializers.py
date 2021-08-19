@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from student.models import UserProfile
 from rest_framework import serializers
+from openedx.core.djangoapps.models.course_details import CourseDetails
+from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 
 
 User = get_user_model()
@@ -80,3 +82,18 @@ class RetrieveListUserSerializer(UserSerializer):
     def __init__(self, *args, **kwargs):
         self.Meta.fields += ('user_id', 'is_active')
         super(RetrieveListUserSerializer, self).__init__(*args, **kwargs)
+
+
+class CourseSerializer(serializers.ModelSerializer):
+    course_category = serializers.SerializerMethodField()
+    tags = serializers.SerializerMethodField()
+
+    class Meta(object):
+        model = CourseOverview
+        fields = ('id', 'short_description', 'effort', 'language', 'course_category', 'tags', 'modified')
+
+    def get_course_category(self, course):
+        return CourseDetails.fetch(course.id).course_category
+
+    def get_tags(self, course):
+        return CourseDetails.fetch(course.id).vendor
