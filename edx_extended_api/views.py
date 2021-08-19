@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
-from rest_framework import viewsets, status
+from rest_framework import generics, viewsets, mixins, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from openedx.core.lib.api.authentication import OAuth2AuthenticationAllowInactiveUser
-from serializers import UserSerializer, RetrieveListUserSerializer
+from serializers import CourseSerializer, UserSerializer, RetrieveListUserSerializer
 from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
+from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 
 User = get_user_model()
 
@@ -69,3 +70,7 @@ class UsersViewSet(viewsets.ModelViewSet):
 class UsersByUsernameViewSet(UsersViewSet):
     lookup_field = 'username'
 
+
+class CoursesViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = CourseSerializer
+    queryset = CourseOverview.objects.all()
