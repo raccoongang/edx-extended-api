@@ -5,7 +5,7 @@ from rest_framework import generics, viewsets, mixins, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from openedx.core.lib.api.authentication import OAuth2AuthenticationAllowInactiveUser
-from serializers import CourseSerializer, UserSerializer, RetrieveListUserSerializer
+from serializers import CourseSerializer, UserSerializer, RetrieveListUserSerializer, UserProgressSerializer
 from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
@@ -13,11 +13,12 @@ from openedx.core.djangoapps.content.course_overviews.models import CourseOvervi
 User = get_user_model()
 
 
-class UsersViewSet(viewsets.ModelViewSet):
-    queryset_filter = {}
-    authentication_classes = (OAuth2AuthenticationAllowInactiveUser,)
-    permission_classes = (IsAuthenticated,)
-    serializer_class = UserSerializer
+class ByUsernameMixin:
+    lookup_field = 'username'
+
+
+class UserFilterMixin:
+    filter_by_supervisor = False
 
     def get_queryset(self):
         """
@@ -32,7 +33,23 @@ class UsersViewSet(viewsets.ModelViewSet):
             self.queryset_filter = {'pk__in': user_ids}
         elif usernames:
             self.queryset_filter = {'username__in': usernames}
+        elif self.filter_by_supervisor:
+            supervisors = [u.strip() for u in self.request.query_params.get('supervisor', '').split(',') if u.strip()]
+            self.queryset_filter = supervisors and {'profile__lt_supervisor__in': supervisors} or {}
         return queryset.filter(**self.queryset_filter)
+
+
+class UsersViewSet(UserFilterMixin, viewsets.ModelViewSet):
+    queryset_filter = {}
+    authentication_classes = (OAuth2AuthenticationAllowInactiveUser,)
+    permission_classes = (IsAuthenticated,)
+    serializer_class = UserSerializer
+
+    DEACTIVATE_STATUSES = {
+        True: 'user_deactivated',
+        False: 'user_already_inactive',
+        None: 'user_not_found'
+    }
 
     def create(self, request, *args, **kwargs):
         return super(UsersViewSet, self).create(request, *args, **kwargs)
@@ -59,18 +76,53 @@ class UsersViewSet(viewsets.ModelViewSet):
             return self.bulk_destroy(request, *args, **kwargs)
         return self.destroy(request, *args, **kwargs)
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        preview_is_active = instance.is_active
+        self.perform_destroy(instance)
+        resp = {
+            'user_id': instance.id,
+            'username': instance.username,
+            'status': self.DEACTIVATE_STATUSES[preview_is_active]
+        }
+        return Response(resp, status=status.HTTP_200_OK)
+
     def bulk_destroy(self, request, *args, **kwargs):
         queryset = self.get_queryset()
         if self.queryset_filter:
+            preview_statuses = dict(queryset.values_list('id', 'is_active'))
+            users = self.queryset_filter.get('pk__in', self.queryset_filter.get('username__in', []))
+            mapping_fields = ('id', 'username') if 'pk__in' in self.queryset_filter else ('username', 'id')
+            mapping = dict(queryset.values_list(*mapping_fields))
+
             queryset.update(is_active=False)
-            return Response(status=status.HTTP_204_NO_CONTENT)
+
+            resp = []
+            for u in users:
+                user_id = mapping_fields[0] == 'id' and u or mapping.get(u)
+                username = mapping_fields[0] == 'username' and u or mapping.get(u, '')
+                resp.append({
+                    'user_id': user_id,
+                    'username': username,
+                    'status': self.DEACTIVATE_STATUSES[preview_statuses.get(user_id)]
+                })
+            return Response(resp, status=status.HTTP_200_OK)
         return Response({'detail': _('You cannot deactivate all users.')}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class UsersByUsernameViewSet(UsersViewSet):
-    lookup_field = 'username'
+class UsersByUsernameViewSet(ByUsernameMixin, UsersViewSet):
+    pass
 
 
 class CoursesViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = CourseSerializer
     queryset = CourseOverview.objects.all()
+
+
+class UserProgressViewSet(UserFilterMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = UserProgressSerializer
+    filter_by_supervisor = True
+
+
+class UserProgressByUsernameViewSet(ByUsernameMixin, UserProgressViewSet):
+    pass
