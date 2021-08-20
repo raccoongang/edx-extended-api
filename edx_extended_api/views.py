@@ -51,12 +51,58 @@ class UsersViewSet(UserFilterMixin, viewsets.ModelViewSet):
         None: 'user_not_found'
     }
 
+    def check_status(self, request, default_status):
+        resp = {'status': default_status}
+        queryset = self.get_queryset()
+        lookup_field = self.lookup_url_kwarg or self.lookup_field
+        lookup_filter = {lookup_field: self.kwargs.get(lookup_field)}
+
+        if lookup_filter[lookup_field] and not queryset.filter(**lookup_filter).exists():
+            resp = {'status': 'user_not_found'}
+        elif lookup_filter[lookup_field] and queryset.filter(is_active=False, **lookup_filter).exists():
+            resp = {'status': 'user_inactive'}
+        elif queryset.filter(username=request.data.get('username')).exists():
+            resp = {'status': 'username_already_used'}
+        elif queryset.filter(email=request.data.get('email')).exists():
+            resp = {'status': 'email_already_used'}
+        else:
+            return resp
+
+        return Response(resp, status=status.HTTP_409_CONFLICT)
+
     def create(self, request, *args, **kwargs):
-        return super(UsersViewSet, self).create(request, *args, **kwargs)
+        serializer = self.get_serializer(data=request.data)
+
+        resp = self.check_status(request, 'user_created')
+        if not isinstance(resp, dict):
+            return resp
+
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        resp.update(serializer.data)
+        return Response(resp, status=status.HTTP_201_CREATED, headers=headers)
 
     def update(self, request, *args, **kwargs):
         self.serializer_class.Meta.extra_kwargs = {"username": {"required": False}}
-        return super(UsersViewSet, self).update(request, *args, **kwargs)
+        partial = kwargs.pop('partial', False)
+
+        resp = self.check_status(request, 'user_updated')
+        if not isinstance(resp, dict):
+            return resp
+
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        if getattr(instance, '_prefetched_objects_cache', None):
+            # If 'prefetch_related' has been applied to a queryset, we need to
+            # forcibly invalidate the prefetch cache on the instance.
+            instance._prefetched_objects_cache = {}
+
+        resp.update(serializer.data)
+        return Response(resp)
 
     def retrieve(self, request, *args, **kwargs):
         self.serializer_class = RetrieveListUserSerializer
