@@ -5,7 +5,7 @@ from rest_framework import generics, viewsets, mixins, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from openedx.core.lib.api.authentication import OAuth2AuthenticationAllowInactiveUser
-from serializers import CourseSerializer, UserSerializer, RetrieveListUserSerializer
+from serializers import CourseSerializer, UserSerializer, RetrieveListUserSerializer, UserProgressSerializer
 from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
@@ -13,11 +13,12 @@ from openedx.core.djangoapps.content.course_overviews.models import CourseOvervi
 User = get_user_model()
 
 
-class UsersViewSet(viewsets.ModelViewSet):
-    queryset_filter = {}
-    authentication_classes = (OAuth2AuthenticationAllowInactiveUser,)
-    permission_classes = (IsAuthenticated,)
-    serializer_class = UserSerializer
+class ByUsernameMixin:
+    lookup_field = 'username'
+
+
+class UserFilterMixin:
+    filter_by_supervisor = False
 
     def get_queryset(self):
         """
@@ -32,7 +33,17 @@ class UsersViewSet(viewsets.ModelViewSet):
             self.queryset_filter = {'pk__in': user_ids}
         elif usernames:
             self.queryset_filter = {'username__in': usernames}
+        elif self.filter_by_supervisor:
+            supervisors = [u.strip() for u in self.request.query_params.get('supervisor', '').split(',') if u.strip()]
+            self.queryset_filter = supervisors and {'profile__lt_supervisor__in': supervisors} or {}
         return queryset.filter(**self.queryset_filter)
+
+
+class UsersViewSet(UserFilterMixin, viewsets.ModelViewSet):
+    queryset_filter = {}
+    authentication_classes = (OAuth2AuthenticationAllowInactiveUser,)
+    permission_classes = (IsAuthenticated,)
+    serializer_class = UserSerializer
 
     def create(self, request, *args, **kwargs):
         return super(UsersViewSet, self).create(request, *args, **kwargs)
@@ -67,10 +78,19 @@ class UsersViewSet(viewsets.ModelViewSet):
         return Response({'detail': _('You cannot deactivate all users.')}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class UsersByUsernameViewSet(UsersViewSet):
-    lookup_field = 'username'
+class UsersByUsernameViewSet(ByUsernameMixin, UsersViewSet):
+    pass
 
 
 class CoursesViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = CourseSerializer
     queryset = CourseOverview.objects.all()
+
+
+class UserProgressViewSet(UserFilterMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    serializer_class = UserProgressSerializer
+    filter_by_supervisor = True
+
+
+class UserProgressByUsernameViewSet(ByUsernameMixin, UserProgressViewSet):
+    pass

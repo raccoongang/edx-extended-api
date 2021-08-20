@@ -1,8 +1,10 @@
+# -*- coding: utf-8 -*-
 from django.contrib.auth import get_user_model
 from student.models import UserProfile
 from rest_framework import serializers
 from openedx.core.djangoapps.models.course_details import CourseDetails
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+from triboo_analytics.models import LearnerCourseJsonReport, LearnerBadgeJsonReport, CourseStatus
 
 
 User = get_user_model()
@@ -79,9 +81,9 @@ class UserSerializer(serializers.ModelSerializer):
 class RetrieveListUserSerializer(UserSerializer):
     user_id = serializers.IntegerField(source='id')
 
-    def __init__(self, *args, **kwargs):
-        self.Meta.fields += ('user_id', 'is_active')
-        super(RetrieveListUserSerializer, self).__init__(*args, **kwargs)
+    class Meta(object):
+        model = User
+        fields = UserSerializer.Meta.fields + ('user_id', 'is_active')
 
 
 class CourseSerializer(serializers.ModelSerializer):
@@ -97,3 +99,54 @@ class CourseSerializer(serializers.ModelSerializer):
 
     def get_tags(self, course):
         return CourseDetails.fetch(course.id).vendor
+
+
+class LearnerBadgeJsonReportSerializer(serializers.ModelSerializer):
+    badge = serializers.SerializerMethodField()
+
+    class Meta(object):
+        model = LearnerBadgeJsonReport
+        fields = ('badge', 'score', 'success', 'success_date')
+
+    def get_badge(self, obj):
+        return u'%s ▸ %s' % (obj.badge.grading_rule, obj.badge.section_name)
+
+
+class LearnerCourseJsonReportSerializer(serializers.ModelSerializer):
+    status = serializers.SerializerMethodField()
+    course_title = serializers.SerializerMethodField()
+    badges = serializers.SerializerMethodField()
+
+    class Meta(object):
+        model = LearnerCourseJsonReport
+        fields = (
+            'course_id', 'status', 'progress', 'current_score', 'total_time_spent',
+            'enrollment_date', 'completion_date', 'course_title', 'badges'
+        )
+
+    def get_status(self, obj):
+        try:
+            return CourseStatus.verbose_names[obj.status]
+        except IndexError:
+            return None
+
+    def get_course_title(self, obj):
+        course_overview = CourseOverview.objects.filter(id=obj.course_id).first()
+        return course_overview and course_overview.display_name or obj.course_id
+
+    def get_badges(self, obj):
+        badges = LearnerBadgeJsonReport.objects.filter(user_id=obj.user_id, badge__course_id=obj.course_id)
+        return LearnerBadgeJsonReportSerializer(badges, many=True).data
+
+
+class UserProgressSerializer(RetrieveListUserSerializer):
+    name = serializers.CharField(source='profile.name')
+    courses = serializers.SerializerMethodField()
+
+    class Meta(object):
+        model = User
+        fields = ('user_id', 'username', 'name', 'courses')
+
+    def get_courses(self, user):
+        courses = LearnerCourseJsonReportSerializer.Meta.model.objects.filter(user=user)
+        return LearnerCourseJsonReportSerializer(courses, many=True).data
