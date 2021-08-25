@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
+from badges.utils import site_prefix
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.urls import reverse
 from student import triboo_groups
 from student.models import UserProfile
+from rest_framework.fields import empty
 from rest_framework import serializers
 from triboo_analytics.models import ANALYTICS_ACCESS_GROUP, ANALYTICS_LIMITED_ACCESS_GROUP
 from openedx.core.djangoapps.models.course_details import CourseDetails
@@ -31,9 +34,74 @@ ACCESSES_NAMES = {
     'internal_catalog_access': triboo_groups.CATALOG_DENIED_GROUP,
     'edflex_catalog_access': triboo_groups.EDFLEX_DENIED_GROUP,
     'crehana_catalog_access': triboo_groups.CREHANA_DENIED_GROUP,
-    'anderspink_catalog_access': triboo_groups.CREHANA_DENIED_GROUP,
+    'anderspink_catalog_access': triboo_groups.ANDERSPINK_DENIED_GROUP,
     'learnlight_catalog_access': triboo_groups.LEARNLIGHT_DENIED_GROUP
 }
+
+
+class CharSerializerMethodField(serializers.SerializerMethodField):
+    """
+    Field that works as SerializerMethodField but supports writing.
+    """
+    default_error_messages = {
+        'invalid': 'Enter a valid string.'
+    }
+
+    def __init__(self, method_name=None, **kwargs):
+        self.method_name = method_name
+        kwargs['read_only'] = False
+        kwargs['source'] = '*'
+        super(serializers.SerializerMethodField, self).__init__(**kwargs)
+
+    def run_validation(self, data=empty):
+        return {self.field_name: super(CharSerializerMethodField, self).run_validation(data)}
+
+    def to_internal_value(self, data):
+        if not isinstance(data, (str, unicode)):
+            self.fail('invalid')
+        return unicode(data).strip()
+
+
+class BooleanSerializerMethodField(serializers.SerializerMethodField):
+
+    def __init__(self, method_name=None, **kwargs):
+        self.method_name = method_name
+        kwargs['read_only'] = False
+        kwargs['source'] = '*'
+        super(serializers.SerializerMethodField, self).__init__(**kwargs)
+
+    TRUE_VALUES = {
+        't', 'T',
+        'y', 'Y', 'yes', 'Yes', 'YES',
+        'true', 'True', 'TRUE',
+        'on', 'On', 'ON',
+        '1', 1,
+        True
+    }
+    FALSE_VALUES = {
+        'f', 'F',
+        'n', 'N', 'no', 'No', 'NO',
+        'false', 'False', 'FALSE',
+        'off', 'Off', 'OFF',
+        '0', 0, 0.0,
+        False
+    }
+    NULL_VALUES = {'null', 'Null', 'NULL', '', None}
+
+    def run_validation(self, data=empty):
+        return {self.field_name: super(BooleanSerializerMethodField, self).run_validation(data)}
+
+    def to_internal_value(self, data):
+        try:
+            if data in self.TRUE_VALUES:
+                return True
+            elif data in self.FALSE_VALUES:
+                return False
+            elif data in self.NULL_VALUES and self.allow_null:
+                return None
+        except TypeError:  # Input is an unhashable type
+            pass
+        self.fail('invalid', input=data)
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -81,12 +149,12 @@ class UserSerializer(serializers.ModelSerializer):
     lt_is_tos_agreed = serializers.BooleanField(source='profile.lt_is_tos_agreed', required=False)
     lt_comments = serializers.CharField(source='profile.lt_comments', required=False)
     lt_ilt_supervisor = serializers.BooleanField(source='profile.lt_ilt_supervisor', required=False)
-    analytics_access = serializers.CharField(required=False, allow_null=True)
-    internal_catalog_access = serializers.BooleanField(required=False)
-    edflex_catalog_access = serializers.BooleanField(required=False)
-    crehana_catalog_access = serializers.BooleanField(required=False)
-    anderspink_catalog_access = serializers.BooleanField(required=False)
-    learnlight_catalog_access = serializers.BooleanField(required=False)
+    analytics_access = CharSerializerMethodField(required=False, allow_null=True)
+    internal_catalog_access = BooleanSerializerMethodField(required=False)
+    edflex_catalog_access = BooleanSerializerMethodField(required=False)
+    crehana_catalog_access = BooleanSerializerMethodField(required=False)
+    anderspink_catalog_access = BooleanSerializerMethodField(required=False)
+    learnlight_catalog_access = BooleanSerializerMethodField(required=False)
 
     class Meta(object):
         model = User
@@ -99,6 +167,40 @@ class UserSerializer(serializers.ModelSerializer):
             'internal_catalog_access', 'edflex_catalog_access', 'crehana_catalog_access', 'anderspink_catalog_access',
             'learnlight_catalog_access'
         )
+
+    def get_fields(self):
+        fields = super(UserSerializer, self).get_fields()
+        request = self.context.get('request', None)
+        if request and getattr(request, 'method', None) == "POST":
+            fields['email'].required = True
+            fields['first_name'].required = True
+            fields['last_name'].required = True
+            fields['name'].required = True
+        return fields
+
+    def get_analytics_access(self, user):
+        user_groups = user.groups.all()
+        if not user_groups:
+            return None
+        if user.groups.filter(name=ANALYTICS_LIMITED_ACCESS_GROUP).exists():
+            return "Restricted"
+        if user.groups.filter(name=ANALYTICS_ACCESS_GROUP).exists():
+            return "Full Access"
+
+    def get_internal_catalog_access(self, user):
+        return True if user.groups.filter(name=triboo_groups.CATALOG_DENIED_GROUP).exists() else False
+
+    def get_edflex_catalog_access(self, user):
+        return True if user.groups.filter(name=triboo_groups.EDFLEX_DENIED_GROUP).exists() else False
+
+    def get_crehana_catalog_access(self, user):
+        return True if user.groups.filter(name=triboo_groups.CREHANA_DENIED_GROUP).exists() else False
+
+    def get_anderspink_catalog_access(self, user):
+        return True if user.groups.filter(name=triboo_groups.ANDERSPINK_DENIED_GROUP).exists() else False
+
+    def get_learnlight_catalog_access(self, user):
+        return True if user.groups.filter(name=triboo_groups.LEARNLIGHT_DENIED_GROUP).exists() else False
 
     def create(self, validated_data):
         profile_data = validated_data.pop('profile', {})
@@ -161,18 +263,54 @@ class RetrieveListUserSerializer(UserSerializer):
 
 
 class CourseSerializer(serializers.ModelSerializer):
+    overview_url = serializers.SerializerMethodField()
+    card_image_url = serializers.SerializerMethodField()
+    banner_image_url = serializers.SerializerMethodField()
+    instructors = serializers.SerializerMethodField()
     course_category = serializers.SerializerMethodField()
     tags = serializers.SerializerMethodField()
+    countries = serializers.SerializerMethodField()
+    learning_groups = serializers.SerializerMethodField()
 
     class Meta(object):
         model = CourseOverview
-        fields = ('id', 'short_description', 'effort', 'language', 'course_category', 'tags', 'modified')
+        fields = (
+            'id', 'display_name', 'overview_url', 'start', 'card_image_url', 'banner_image_url', 'short_description',
+            'instructors', 'effort', 'language', 'course_category', 'tags', 'countries', 'learning_groups', 'modified'
+        )
+
+    def get_overview_url(self, course):
+        return u'{}{}'.format(
+            site_prefix(),
+            reverse('about_course', kwargs={'course_id': unicode(course.id)})
+        )
+
+    def get_card_image_url(self, course):
+        return u'{}{}'.format(
+            site_prefix(),
+            CourseDetails.fetch(course.id).course_image_asset_path
+        )
+
+    def get_banner_image_url(self, course):
+        return u'{}{}'.format(
+            site_prefix(),
+            CourseDetails.fetch(course.id).banner_image_asset_path
+        )
+
+    def get_instructors(self, course):
+        return CourseDetails.fetch(course.id).instructor_info.get("instructors", [])
 
     def get_course_category(self, course):
         return CourseDetails.fetch(course.id).course_category
 
     def get_tags(self, course):
         return CourseDetails.fetch(course.id).vendor
+
+    def get_countries(self, course):
+        return CourseDetails.fetch(course.id).course_country
+
+    def get_learning_groups(self, course):
+        return CourseDetails.fetch(course.id).enrollment_learning_groups
 
 
 class LearnerBadgeJsonReportSerializer(serializers.ModelSerializer):
