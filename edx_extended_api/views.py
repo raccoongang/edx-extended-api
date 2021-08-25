@@ -3,12 +3,14 @@ from __future__ import unicode_literals
 
 from rest_framework import generics, viewsets, mixins, status
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
 from openedx.core.lib.api.authentication import OAuth2AuthenticationAllowInactiveUser
-from serializers import CourseSerializer, UserSerializer, RetrieveListUserSerializer, UserProgressSerializer
 from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+
+from .serializers import CourseSerializer, UserSerializer, RetrieveListUserSerializer, UserProgressSerializer
+from .permissions import IsStaffAndOrgMember
+
 
 User = get_user_model()
 
@@ -42,7 +44,7 @@ class UserFilterMixin:
 class UsersViewSet(UserFilterMixin, viewsets.ModelViewSet):
     queryset_filter = {}
     authentication_classes = (OAuth2AuthenticationAllowInactiveUser,)
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsStaffAndOrgMember,)
     serializer_class = UserSerializer
 
     DEACTIVATE_STATUSES = {
@@ -161,11 +163,15 @@ class UsersByUsernameViewSet(ByUsernameMixin, UsersViewSet):
 
 
 class CoursesViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    authentication_classes = (OAuth2AuthenticationAllowInactiveUser,)
+    permission_classes = (IsStaffAndOrgMember,)
     serializer_class = CourseSerializer
     queryset = CourseOverview.objects.all()
 
 
 class UserProgressViewSet(UserFilterMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    authentication_classes = (OAuth2AuthenticationAllowInactiveUser,)
+    permission_classes = (IsStaffAndOrgMember,)
     serializer_class = UserProgressSerializer
     filter_by_supervisor = True
 
