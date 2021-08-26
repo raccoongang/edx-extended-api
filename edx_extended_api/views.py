@@ -4,15 +4,12 @@ from __future__ import unicode_literals
 from rest_framework import generics, viewsets, mixins, status
 from rest_framework.response import Response
 from openedx.core.lib.api.authentication import OAuth2AuthenticationAllowInactiveUser
-from django.contrib.auth import get_user_model
 from django.utils.translation import gettext_lazy as _
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 
 from .serializers import CourseSerializer, UserSerializer, RetrieveListUserSerializer, UserProgressSerializer
 from .permissions import IsStaffAndOrgMember
-
-
-User = get_user_model()
 
 
 class ByUsernameMixin:
@@ -20,13 +17,21 @@ class ByUsernameMixin:
 
 
 class UserFilterMixin:
+    queryset_filter = {}
     filter_by_supervisor = False
 
     def get_queryset(self):
         """
         Restricts the returned users, by filtering by `user_id` query parameter.
         """
-        queryset = User.objects.all()
+        course_org_filter = configuration_helpers.get_current_site_orgs() or []
+        queryset = self.serializer_class.Meta.model.objects.filter(
+            profile__org__in=course_org_filter
+        ).exclude(
+            profile__org=None
+        ).exclude(
+            profile__org=''
+        )
         user_ids = [int(_id) for _id in self.request.query_params.get('user_id', '').split(',') if _id.strip().isdigit()]
         usernames = [u.strip() for u in self.request.query_params.get('username', '').split(',') if u.strip()]
 
@@ -42,7 +47,6 @@ class UserFilterMixin:
 
 
 class UsersViewSet(UserFilterMixin, viewsets.ModelViewSet):
-    queryset_filter = {}
     authentication_classes = (OAuth2AuthenticationAllowInactiveUser,)
     permission_classes = (IsStaffAndOrgMember,)
     serializer_class = UserSerializer
@@ -166,7 +170,10 @@ class CoursesViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     authentication_classes = (OAuth2AuthenticationAllowInactiveUser,)
     permission_classes = (IsStaffAndOrgMember,)
     serializer_class = CourseSerializer
-    queryset = CourseOverview.objects.all()
+
+    def get_queryset(self):
+        course_org_filter = configuration_helpers.get_current_site_orgs() or []
+        return self.serializer_class.Meta.model.objects.filter(org__in=course_org_filter).exclude(org=None).exclude(org='')
 
 
 class UserProgressViewSet(UserFilterMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -174,6 +181,17 @@ class UserProgressViewSet(UserFilterMixin, mixins.RetrieveModelMixin, mixins.Lis
     permission_classes = (IsStaffAndOrgMember,)
     serializer_class = UserProgressSerializer
     filter_by_supervisor = True
+
+    def get_queryset(self):
+        course_org_filter = configuration_helpers.get_current_site_orgs() or []
+        queryset = self.serializer_class.Meta.model.objects.filter(
+            profile__org__in=course_org_filter
+        ).exclude(
+            profile__org=None
+        ).exclude(
+            profile__org=''
+        )
+        return queryset
 
 
 class UserProgressByUsernameViewSet(ByUsernameMixin, UserProgressViewSet):
