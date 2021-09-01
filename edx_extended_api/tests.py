@@ -149,7 +149,7 @@ class UpdateUserTests(APITestCase):
 
         response = self.client.put(url, data, format='json')
 
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.data.get('status'), 'user_not_found')
 
     def test_user_inactive_update_by_id(self):
@@ -222,7 +222,7 @@ class UpdateUserTests(APITestCase):
 
         response = self.client.put(url, data, format='json')
 
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.data.get('status'), 'user_not_found')
 
     def test_user_inactive_update_by_username(self):
