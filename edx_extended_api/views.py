@@ -63,7 +63,9 @@ class UsersViewSet(UserFilterMixin, viewsets.ModelViewSet):
         lookup_field = self.lookup_url_kwarg or self.lookup_field
         lookup_filter = {lookup_field: self.kwargs.get(lookup_field)}
 
+        _status = status.HTTP_409_CONFLICT
         if lookup_filter[lookup_field] and not queryset.filter(**lookup_filter).exists():
+            _status = status.HTTP_404_NOT_FOUND
             resp = {'status': 'user_not_found'}
         elif lookup_filter[lookup_field] and queryset.filter(is_active=False, **lookup_filter).exists():
             resp = {'status': 'user_inactive'}
@@ -74,7 +76,7 @@ class UsersViewSet(UserFilterMixin, viewsets.ModelViewSet):
         else:
             return resp
 
-        return Response(resp, status=status.HTTP_409_CONFLICT)
+        return Response(resp, status=_status)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
