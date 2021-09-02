@@ -38,6 +38,7 @@ class CreateUserTests(APITestCase):
         self.user = User.objects.create(
             username='edx',
             is_staff=True,
+            is_superuser=True,
             email='edx@example.com'
         )
         UserProfile.objects.create(
@@ -104,6 +105,7 @@ class UpdateUserTests(APITestCase):
         self.user = User.objects.create(
             username='edx',
             is_staff=True,
+            is_superuser=True,
             email='edx@example.com'
         )
         UserProfile.objects.create(
@@ -278,6 +280,7 @@ class GetUserTests(APITestCase):
         self.user = User.objects.create(
             username='edx',
             is_staff=True,
+            is_superuser=True,
             email='edx@example.com'
         )
         UserProfile.objects.create(
@@ -405,6 +408,7 @@ class DeactivateUserTests(APITestCase):
         self.user = User.objects.create(
             username='edx',
             is_staff=True,
+            is_superuser=True,
             email='edx@example.com'
         )
         UserProfile.objects.create(
@@ -563,6 +567,7 @@ class CoursesTests(CourseApiFactoryMixin, APITestCase):
         self.user = User.objects.create(
             username='edx',
             is_staff=True,
+            is_superuser=True,
             email='edx@example.com'
         )
         UserProfile.objects.create(
@@ -610,6 +615,7 @@ class UserProgressReportTests(CourseApiFactoryMixin, APITestCase):
         self.user = User.objects.create(
             username='edx',
             is_staff=True,
+            is_superuser=True,
             email='edx@example.com'
         )
         UserProfile.objects.create(
