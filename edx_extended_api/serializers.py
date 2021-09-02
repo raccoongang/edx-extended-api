@@ -5,6 +5,7 @@ from django.contrib.auth.models import Group
 from django.urls import reverse
 from student import triboo_groups
 from student.models import UserProfile
+from student.roles import STUDIO_ADMIN_ACCESS_GROUP
 from rest_framework.fields import empty
 from rest_framework import serializers
 from triboo_analytics.models import ANALYTICS_ACCESS_GROUP, ANALYTICS_LIMITED_ACCESS_GROUP
@@ -24,6 +25,24 @@ def get_or_create_and_add_group(user_instance, group_name):
 def get_or_create_and_remove_group(user_instance, group_name):
     group, _ = Group.objects.get_or_create(name=group_name)
     user_instance.groups.remove(group)
+
+
+def set_user_platform_role(platform_role, user):
+    if platform_role == 'Super Platform Admin':
+        user.is_superuser = True
+        user.is_staff = True
+    elif platform_role == 'Platform Admin':
+        user.is_superuser = False
+        user.is_staff = True
+    elif platform_role == 'Studio Admin':
+        user.is_superuser = False
+        user.is_staff = False
+        get_or_create_and_add_group(user, STUDIO_ADMIN_ACCESS_GROUP)
+    elif platform_role == 'Learner':
+        user.is_superuser = False
+        user.is_staff = False
+        get_or_create_and_remove_group(user, STUDIO_ADMIN_ACCESS_GROUP)
+    user.save()
 
 
 GROUP_ACTIONS = {
@@ -155,6 +174,7 @@ class UserSerializer(serializers.ModelSerializer):
     crehana_catalog_access = BooleanSerializerMethodField(required=False)
     anderspink_catalog_access = BooleanSerializerMethodField(required=False)
     learnlight_catalog_access = BooleanSerializerMethodField(required=False)
+    platform_role = CharSerializerMethodField(required=False, default='Learner')
 
     class Meta(object):
         model = User
@@ -165,7 +185,7 @@ class UserSerializer(serializers.ModelSerializer):
             'lt_level', 'lt_job_code', 'lt_job_description', 'lt_department', 'lt_supervisor', 'lt_learning_group',
             'lt_exempt_status', 'lt_is_tos_agreed', 'lt_comments', 'lt_ilt_supervisor', 'analytics_access',
             'internal_catalog_access', 'edflex_catalog_access', 'crehana_catalog_access', 'anderspink_catalog_access',
-            'learnlight_catalog_access'
+            'learnlight_catalog_access', 'platform_role'
         )
 
     def get_fields(self):
@@ -187,6 +207,16 @@ class UserSerializer(serializers.ModelSerializer):
         if user.groups.filter(name=ANALYTICS_ACCESS_GROUP).exists():
             return "Full Access"
 
+    def get_platform_role(self, user):
+        if user.is_superuser and user.is_staff:
+            return 'Super Platform Admin'
+        elif user.is_staff:
+            return 'Platform Admin'
+        elif user.groups.filter(name=STUDIO_ADMIN_ACCESS_GROUP).exists():
+            return 'Studio Admin'
+        else:
+            return 'Learner'
+
     def get_internal_catalog_access(self, user):
         return True if user.groups.filter(name=triboo_groups.CATALOG_DENIED_GROUP).exists() else False
 
@@ -207,6 +237,7 @@ class UserSerializer(serializers.ModelSerializer):
         accesses_dict = {}
         validated_data_keys = validated_data.keys()
         analytics_access = validated_data.pop('analytics_access', False)
+        platform_role = validated_data.pop('platform_role', 'Learner')
 
         for name, _ in ACCESSES_NAMES.items():
             if name in validated_data_keys:
@@ -221,6 +252,8 @@ class UserSerializer(serializers.ModelSerializer):
         elif analytics_access == 'Full Access':
             get_or_create_and_add_group(user, ANALYTICS_ACCESS_GROUP)
 
+        set_user_platform_role(platform_role, user)
+
         [GROUP_ACTIONS[value](user, ACCESSES_NAMES[key]) for key, value in accesses_dict.items()]
 
         UserProfile.objects.create(user=user, **profile_data)
@@ -231,6 +264,7 @@ class UserSerializer(serializers.ModelSerializer):
         accesses_dict = {}
         validated_data_keys = validated_data.keys()
         analytics_access = validated_data.pop('analytics_access', False)
+        platform_role = validated_data.pop('platform_role', None)
 
         for name, _ in ACCESSES_NAMES.items():
             if name in validated_data_keys:
@@ -247,6 +281,8 @@ class UserSerializer(serializers.ModelSerializer):
         elif analytics_access is None:
             get_or_create_and_remove_group(instance, ANALYTICS_LIMITED_ACCESS_GROUP)
             get_or_create_and_remove_group(instance, ANALYTICS_ACCESS_GROUP)
+
+        set_user_platform_role(platform_role, user)
 
         [GROUP_ACTIONS[value](instance, ACCESSES_NAMES[key]) for key, value in accesses_dict.items()]
         User.objects.update_or_create(id=instance.id, defaults=validated_data)

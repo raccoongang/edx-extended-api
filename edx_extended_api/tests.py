@@ -3,6 +3,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.contrib.sites.models import Site
 from triboo_analytics.models import LearnerCourseJsonReport
 from student.models import UserProfile, CourseEnrollment
@@ -11,6 +12,7 @@ from openedx.core.djangoapps.site_configuration.models import SiteConfiguration
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from xmodule.modulestore.django import modulestore
 from xmodule.modulestore.tests.factories import CourseFactory, XMODULE_FACTORY_LOCK
+from student.roles import STUDIO_ADMIN_ACCESS_GROUP
 
 
 User = get_user_model()
@@ -66,6 +68,50 @@ class CreateUserTests(APITestCase):
         self.assertTrue(User.objects.filter(username='user1').exists())
         self.assertTrue(UserProfile.objects.filter(name='One').exists())
         self.assertEqual(UserProfile.objects.get(user__username=data['username']).org, self.user.profile.org)
+
+    def test_platform_role_user_creation(self):
+        url = reverse('edx_extended_api:users-list')
+
+        data1 = {
+            "username": "user1",
+            "email": "user1@example.com",
+            "first_name": "first1",
+            "last_name": "last1",
+            "name": "name1",
+            "platform_role": "Studio Admin"
+        }
+        data2 = {
+            "username": "user2",
+            "email": "user2@example.com",
+            "first_name": "first2",
+            "last_name": "last2",
+            "name": "name2",
+            "platform_role": "Platform Admin"
+        }
+        data3 = {
+            "username": "user3",
+            "email": "user3@example.com",
+            "first_name": "first3",
+            "last_name": "last3",
+            "name": "name3",
+            "platform_role": "Super Platform Admin"
+        }
+
+        self.client.post(url, data1, format='json')
+        self.client.post(url, data2, format='json')
+        self.client.post(url, data3, format='json')
+
+        user1 = User.objects.get(username=data1['username'])
+        user2 = User.objects.get(username=data2['username'])
+        user3 = User.objects.get(username=data3['username'])
+
+        self.assertTrue(user1.groups.filter(name=STUDIO_ADMIN_ACCESS_GROUP).exists())
+        self.assertFalse(user1.is_staff)
+        self.assertFalse(user1.is_superuser)
+        self.assertTrue(user2.is_staff)
+        self.assertFalse(user2.is_superuser)
+        self.assertTrue(user3.is_staff)
+        self.assertTrue(user3.is_superuser)
 
     def test_used_username_user_creation(self):
         url = reverse('edx_extended_api:users-list')
@@ -339,7 +385,34 @@ class GetUserTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data.get("username"), "user1")
+        self.assertEqual(response.data.get("platform_role"), "Learner")
         self.assertTrue(response.data.get("is_active"))
+
+    def test_platform_role(self):
+        self.user1.is_staff = True
+        self.user1.save()
+        studio_admin_group, _ = Group.objects.get_or_create(name=STUDIO_ADMIN_ACCESS_GROUP)
+        self.user2.groups.add(studio_admin_group)
+        url = reverse(
+            'edx_extended_api:users-detail',
+            kwargs={'pk': self.user.id}
+        )
+        url1 = reverse(
+            'edx_extended_api:users-detail',
+            kwargs={'pk': self.user1.id}
+        )
+        url2 = reverse(
+            'edx_extended_api:users-detail',
+            kwargs={'pk': self.user2.id}
+        )
+
+        response = self.client.get(url)
+        response1 = self.client.get(url1)
+        response2 = self.client.get(url2)
+
+        self.assertEqual(response.data.get("platform_role"), "Super Platform Admin")
+        self.assertEqual(response1.data.get("platform_role"), "Platform Admin")
+        self.assertEqual(response2.data.get("platform_role"), "Studio Admin")
 
     def test_get_users_by_ids(self):
         url = "{}?{}".format(
