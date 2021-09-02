@@ -65,6 +65,7 @@ class CreateUserTests(APITestCase):
         self.assertEqual(UserProfile.objects.count(), 2)
         self.assertTrue(User.objects.filter(username='user1').exists())
         self.assertTrue(UserProfile.objects.filter(name='One').exists())
+        self.assertEqual(UserProfile.objects.get(user__username=data['username']).org, self.user.profile.org)
 
     def test_used_username_user_creation(self):
         url = reverse('edx_extended_api:users-list')

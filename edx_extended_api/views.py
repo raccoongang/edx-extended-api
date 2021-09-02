@@ -86,6 +86,10 @@ class UsersViewSet(UserFilterMixin, viewsets.ModelViewSet):
             return resp
 
         serializer.is_valid(raise_exception=True)
+        if 'profile' in serializer.validated_data:
+            serializer.validated_data['profile']['org'] = request.user.profile.org
+        else:
+            serializer.validated_data['profile'] = {'org': request.user.profile.org}
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
         resp.update(serializer.data)
